@@ -7,6 +7,7 @@ resource "google_compute_instance" "vpc_1_instance" {
       image = "debian-cloud/debian-11"
     }
   }
+  tags = ["iap-ssh"]
   network_interface {
     subnetwork = google_compute_subnetwork.vpc_1_subnetwork.name
   }
