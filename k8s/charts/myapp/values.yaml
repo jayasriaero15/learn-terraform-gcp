@@ -1,0 +1,4 @@
+image:
+  repository: gcr.io/project-af5a9a8c-a838-417b-891/myapp
+  tag: latest
+
