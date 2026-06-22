@@ -15,3 +15,8 @@ variable "zone" {
   description = "Default zone for this module"
   default     = "asia-south2-a"
 }
+
+variable "peer_network_b" {
+  type    = string
+  default = "Self Link of VPC B"
+}

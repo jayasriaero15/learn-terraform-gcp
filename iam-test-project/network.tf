@@ -1,0 +1,251 @@
+/*
+resource "google_compute_network" "my_vpc" {
+  name                    = "my-vpc"
+  auto_create_subnetworks = false
+}
+
+resource "google_compute_subnetwork" "my_asia_south2_subnet" {
+  name                     = "asia-south2-subnet"
+  network                  = google_compute_network.my_vpc.id
+  ip_cidr_range            = "10.0.0.0/28"
+  region                   = "asia-south2"
+  private_ip_google_access = true
+}
+
+#### test subnet for PSC ############
+resource "google_compute_subnetwork" "psc_proxy_subnet" {
+  name          = "psc-proxy-subnet"
+  ip_cidr_range = "10.1.0.0/24"
+  region        = "asia-south2"
+  network       = google_compute_network.my_vpc.id
+  purpose       = "REGIONAL_MANAGED_PROXY"
+  role          = "ACTIVE"
+}
+
+resource "google_compute_firewall" "iap_firewall_rule" {
+  name    = "iap-firewall-rule"
+  network = google_compute_network.my_vpc.id
+  allow {
+    protocol = "tcp"
+    ports    = ["22"]
+  }
+  source_ranges = ["35.235.240.0/20"]
+  target_tags   = ["iap-ssh"]
+}
+
+resource "google_compute_router" "nat_router" {
+  name    = "nat-router"
+  network = google_compute_network.my_vpc.id
+  project = var.project_id
+  region  = "asia-south2"
+}
+
+resource "google_compute_router_nat" "vm_nat" {
+  name                               = "vm-nat"
+  router                             = google_compute_router.nat_router.name
+  nat_ip_allocate_option             = "AUTO_ONLY"
+  source_subnetwork_ip_ranges_to_nat = "ALL_SUBNETWORKS_ALL_IP_RANGES"
+}
+
+
+#########VPN Tunnel Test ############
+
+# 1. VPC
+resource "google_compute_network" "vpn_vpc" {
+  name                    = "vpn-vpc"
+  auto_create_subnetworks = false
+}
+
+# 2. Subnet
+resource "google_compute_subnetwork" "vpn_subnet" {
+  name          = "vpn-subnet"
+  ip_cidr_range = "10.10.0.0/24"
+  region        = "asia-south2"
+  network       = google_compute_network.vpn_vpc.id
+}
+
+# 3. Firewall (VPN ports + ICMP for ping)
+resource "google_compute_firewall" "vpn_firewall" {
+  name    = "vpn-firewall"
+  network = google_compute_network.vpn_vpc.name
+
+  allow {
+    protocol = "tcp"
+    ports    = ["443", "943", "9443"]
+  }
+
+  allow {
+    protocol = "udp"
+    ports    = ["500", "4500", "1194"]
+  }
+
+  allow {
+    protocol = "icmp"
+  }
+
+  source_ranges = ["0.0.0.0/0"]
+}
+
+# 4. Reserve Static IP for VPN Gateway
+resource "google_compute_address" "vpn_ip" {
+  name   = "vpn-ip"
+  region = "asia-south2"
+}
+
+# 5. VPN Gateway
+resource "google_compute_vpn_gateway" "vpn_gateway" {
+  name    = "gcp-vpn-gateway"
+  network = google_compute_network.vpn_vpc.id
+  region  = "asia-south2"
+}
+
+# 6. Forwarding Rules (ESP, UDP 500, UDP 4500)
+resource "google_compute_forwarding_rule" "vpn_esp" {
+  name        = "vpn-esp-rule"
+  region      = "asia-south2"
+  ip_protocol = "ESP"
+  ip_address  = google_compute_address.vpn_ip.address
+  target      = google_compute_vpn_gateway.vpn_gateway.id
+
+  depends_on = [google_compute_vpn_gateway.vpn_gateway]
+}
+
+resource "google_compute_forwarding_rule" "vpn_udp500" {
+  name        = "vpn-udp500-rule"
+  region      = "asia-south2"
+  ip_protocol = "UDP"
+  port_range  = "500"
+  ip_address  = google_compute_address.vpn_ip.address
+  target      = google_compute_vpn_gateway.vpn_gateway.id
+}
+
+resource "google_compute_forwarding_rule" "vpn_udp4500" {
+  name        = "vpn-udp4500-rule"
+  region      = "asia-south2"
+  ip_protocol = "UDP"
+  port_range  = "4500"
+  ip_address  = google_compute_address.vpn_ip.address
+  target      = google_compute_vpn_gateway.vpn_gateway.id
+}
+
+# 7. VPN Tunnel
+resource "google_compute_vpn_tunnel" "vpn_tunnel" {
+  name               = "laptop-to-gcp-tunnel"
+  region             = "asia-south2"
+  target_vpn_gateway = google_compute_vpn_gateway.vpn_gateway.id
+  peer_ip            = "49.37.219.70"
+  shared_secret      = "MyStrongPassword@123"
+
+  local_traffic_selector  = ["10.10.0.0/24"]
+  remote_traffic_selector = ["192.168.29.0/24"]
+
+  depends_on = [
+    google_compute_forwarding_rule.vpn_esp,
+    google_compute_forwarding_rule.vpn_udp500,
+    google_compute_forwarding_rule.vpn_udp4500
+  ]
+}
+
+# 8. Route
+resource "google_compute_route" "vpn_route" {
+  name                = "vpn-route"
+  network             = google_compute_network.vpn_vpc.name
+  dest_range          = "192.168.29.0/24"
+  next_hop_vpn_tunnel = google_compute_vpn_tunnel.vpn_tunnel.id
+}
+
+# 9. Test VM (internal only)
+resource "google_compute_instance" "vpn_test_vm" {
+  name         = "vpn-test-vm"
+  machine_type = "e2-micro"
+  zone         = "asia-south2-a"
+
+  boot_disk {
+    initialize_params {
+      image = "debian-cloud/debian-11"
+    }
+  }
+
+  network_interface {
+    subnetwork = google_compute_subnetwork.vpn_subnet.name
+    # No external IP → reachable only via VPN
+  }
+
+  metadata_startup_script = <<-EOT
+    #!/bin/bash
+    apt-get update
+    apt-get install -y iputils-ping
+  EOT
+}
+  auto_create_subnetworks = false
+}
+
+# 2. Subnet
+resource "google_compute_subnetwork" "vpn_subnet" {
+  name          = "vpn-subnet"
+  ip_cidr_range = "10.10.0.0/24"
+  region        = "asia-south2"
+  network       = google_compute_network.vpn_vpc.id
+}
+
+# 3. Firewall (VPN ports + ICMP for ping)
+resource "google_compute_firewall" "vpn_firewall" {
+  name    = "vpn-firewall"
+  network = google_compute_network.vpn_vpc.name
+
+  allow {
+    protocol = "tcp"
+    ports    = ["443", "943", "9443"]
+}
+
+
+*/
+
+resource "google_compute_network" "vpc_b" {
+  name                    = "vpc-b"
+  auto_create_subnetworks = false
+}
+
+resource "google_compute_subnetwork" "vpc_b_subnetwork" {
+  name          = "vpc-b-subnet"
+  ip_cidr_range = "10.0.2.0/28"
+  network       = google_compute_network.vpc_b.id
+  region        = "asia-south2"
+}
+
+resource "google_compute_firewall" "vpc_b_firewall" {
+  name    = "vpc-b-firewall"
+  network = google_compute_network.vpc_b.name
+  allow {
+    protocol = "icmp"
+  }
+  allow {
+    protocol = "TCP"
+    ports = ["22"]
+  }
+  source_ranges = ["10.0.1.0/28","35.235.240.0/20"]
+  target_tags = ["iap-ssh"]
+}
+
+resource "google_compute_instance" "proj_b_instance" {
+  name         = "proj-b-instance"
+  machine_type = "f1-micro"
+  zone         = "asia-south2-b"
+  boot_disk {
+    initialize_params {
+      image = "debian-cloud/debian-11"
+    }
+  }
+  network_interface {
+    network    = google_compute_network.vpc_b.name
+    subnetwork = google_compute_subnetwork.vpc_b_subnetwork.name
+  }
+  tags = ["iap-ssh"]
+}
+
+# Peering from B -> A
+resource "google_compute_network_peering" "peer_b_to_a" {
+  name         = "peer-b-to-a"
+  network      = google_compute_network.vpc_b.self_link
+  peer_network = var.peer_network_a
+}

@@ -1,0 +1,82 @@
+resource "google_cloud_run_service" "hello_psc" {
+  name     = "hello-psc"
+  location = "asia-south2"
+
+  template {
+    spec {
+      containers {
+        image = "gcr.io/cloudrun/hello"
+      }
+    }
+  }
+
+  traffic {
+    percent         = 100
+    latest_revision = true
+  }
+}
+
+resource "google_compute_region_network_endpoint_group" "serverless_neg" {
+  name                  = "hello-psc-neg"
+  region                = "asia-south2"
+  network_endpoint_type = "SERVERLESS"
+
+  cloud_run {
+    service = google_cloud_run_service.hello_psc.name
+  }
+}
+
+resource "google_compute_region_backend_service" "psc_backend" {
+  name                  = "psc-backend"
+  region                = "asia-south2"
+  protocol              = "HTTP"
+  load_balancing_scheme = "INTERNAL_MANAGED"
+
+  backend {
+    group = google_compute_region_network_endpoint_group.serverless_neg.id
+  }
+}
+
+resource "google_compute_region_url_map" "psc_urlmap" {
+  name            = "psc-urlmap"
+  region          = "asia-south2"
+  default_service = google_compute_region_backend_service.psc_backend.id
+}
+
+resource "google_compute_region_target_http_proxy" "psc_proxy" {
+  name    = "psc-proxy"
+  region  = "asia-south2"
+  url_map = google_compute_region_url_map.psc_urlmap.id
+}
+
+resource "google_compute_forwarding_rule" "psc_endpoint" {
+  name       = "psc-endpoint"
+  region     = "asia-south2"
+  network    = google_compute_network.my_vpc.id
+  subnetwork = google_compute_subnetwork.my_asia_south2_subnet.id
+  //ip_protocol           = "HTTP"
+  load_balancing_scheme = "INTERNAL_MANAGED"
+  port_range            = "80"
+  target                = google_compute_region_target_http_proxy.psc_proxy.id
+}
+
+
+resource "google_compute_instance" "psc_test_vm" {
+  name         = "psc-test-vm"
+  machine_type = "e2-micro" # free tier eligible
+  zone         = "asia-south2-a"
+
+  boot_disk {
+    initialize_params {
+      image = "debian-cloud/debian-11"
+    }
+  }
+
+  network_interface {
+    subnetwork = google_compute_subnetwork.my_asia_south2_subnet.id
+  }
+  tags=["iap-ssh"]
+}
+
+
+

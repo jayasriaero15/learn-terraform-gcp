@@ -1,3 +1,4 @@
+/*
 resource "google_compute_instance" "vpc_1_instance" {
   name         = "vpc-1-instance"
   machine_type = "f1-micro"
@@ -12,3 +13,19 @@ resource "google_compute_instance" "vpc_1_instance" {
     subnetwork = google_compute_subnetwork.vpc_1_subnetwork.name
   }
 }
+
+resource "google_compute_instance" "vpc_2_instance" {
+  name         = "vpc-2-instance"
+  machine_type = "f1-micro"
+  zone         = "asia-south2-a"
+  boot_disk {
+    initialize_params {
+      image = "debian-cloud/debian-11"
+    }
+  }
+  tags = ["iap-ssh"]
+  network_interface {
+    network = "default"
+  }
+}
+*/

@@ -1,0 +1,6 @@
+resource "google_storage_bucket" "my_test_bucket" {
+  name                        = "iam-test-project-499205-bucket"
+  location                    = "asia-south2"
+  uniform_bucket_level_access = true
+  force_destroy               = true
+}

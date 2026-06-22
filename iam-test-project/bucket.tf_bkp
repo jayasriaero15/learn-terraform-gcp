@@ -1,0 +1,16 @@
+resource "google_storage_bucket" "test_bucket" {
+  name                        = "iam-test-project-499205-test-bucket"
+  location                    = "asia-south2"
+  uniform_bucket_level_access = true
+  project                     = var.project_id
+  force_destroy               = true
+}
+
+resource "google_storage_bucket" "test_bucket1" {
+  name                        = "iam-test-project-499205-test-bucket1"
+  location                    = "asia-south2"
+  project                     = var.project_id
+  uniform_bucket_level_access = true
+  force_destroy               = true
+}
+
