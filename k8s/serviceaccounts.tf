@@ -14,6 +14,6 @@ resource "google_project_iam_member" "grafana_role_binding" {
 resource "google_service_account_iam_member" "grafana_wi_binding" {
   service_account_id = google_service_account.grafana_monitoring.name
   role               = "roles/iam.workloadIdentityUser"
-  member             = "serviceAccount:${var.project_id}.svc.id.goog[monitoring/grafana]"
+  member             = "serviceAccount:${var.project_id}.svc.id.goog[monitoring/grafana]" #serviceAccount:<PROJECT_ID>.svc.id.goog[<namespace>/<KSA-name>]
 }
 
